@@ -27,6 +27,34 @@ type KeyValuePair struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// AuthType represents the type of authentication
+type AuthType string
+
+const (
+	AuthTypeNone AuthType = "none"
+	AuthTypeBasic AuthType = "basic"
+	AuthTypeBearer AuthType = "bearer"
+	AuthTypeAPIKey AuthType = "apikey"
+)
+
+// AuthConfig holds authentication configuration for a request
+type AuthConfig struct {
+	Type AuthType `json:"type"`
+
+	// Basic Auth
+	BasicUsername string `json:"basicUsername,omitempty"`
+	BasicPassword string `json:"basicPassword,omitempty"`
+
+	// Bearer Token
+	BearerToken string `json:"bearerToken,omitempty"`
+	BearerPrefix string `json:"bearerPrefix,omitempty"` // defaults to "Bearer"
+
+	// API Key
+	APIKeyKey string `json:"apiKeyKey,omitempty"`
+	APIKeyValue string `json:"apiKeyValue,omitempty"`
+	APIKeyLocation string `json:"apiKeyLocation,omitempty"` // "header" or "query"
+}
+
 // RequestData holds the actual request configuration
 type RequestData struct {
 	Method  string         `json:"method"`
@@ -34,6 +62,7 @@ type RequestData struct {
 	Headers []KeyValuePair `json:"headers"`
 	Params  []KeyValuePair `json:"params"`
 	Body    string         `json:"body"`
+	Auth *AuthConfig `json:"auth,omitempty"`
 }
 
 // CollectionItem represents either a folder or a request in the collection tree
@@ -355,6 +384,7 @@ func (s *CollectionService) CreateRequest(collectionID, parentID, name string) (
 			Headers: []KeyValuePair{},
 			Params:  []KeyValuePair{},
 			Body:    "",
+			Auth: &AuthConfig{Type: AuthTypeNone},
 		},
 		CreatedAt: now,
 		UpdatedAt: now,

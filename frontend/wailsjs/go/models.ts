@@ -1,5 +1,31 @@
 export namespace main {
 	
+	export class AuthConfig {
+	    type: string;
+	    basicUsername?: string;
+	    basicPassword?: string;
+	    bearerToken?: string;
+	    bearerPrefix?: string;
+	    apiKeyKey?: string;
+	    apiKeyValue?: string;
+	    apiKeyLocation?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AuthConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.basicUsername = source["basicUsername"];
+	        this.basicPassword = source["basicPassword"];
+	        this.bearerToken = source["bearerToken"];
+	        this.bearerPrefix = source["bearerPrefix"];
+	        this.apiKeyKey = source["apiKeyKey"];
+	        this.apiKeyValue = source["apiKeyValue"];
+	        this.apiKeyLocation = source["apiKeyLocation"];
+	    }
+	}
 	export class KeyValuePair {
 	    key: string;
 	    value: string;
@@ -22,6 +48,7 @@ export namespace main {
 	    headers: KeyValuePair[];
 	    params: KeyValuePair[];
 	    body: string;
+	    auth?: AuthConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new RequestData(source);
@@ -34,6 +61,7 @@ export namespace main {
 	        this.headers = this.convertValues(source["headers"], KeyValuePair);
 	        this.params = this.convertValues(source["params"], KeyValuePair);
 	        this.body = source["body"];
+	        this.auth = this.convertValues(source["auth"], AuthConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

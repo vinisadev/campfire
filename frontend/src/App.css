@@ -226,6 +226,11 @@
   color: var(--text-muted);
 }
 
+.tab-badge.auth-badge {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--success);
+}
+
 /* Tab content */
 .tab-content {
   flex: 1;

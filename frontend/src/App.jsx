@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import "./App.css";
 import CollectionTree from "./components/CollectionTree";
+import AuthEditor from "./components/AuthEditor";
 import {
   GetOpenCollections,
   GetCollection,
@@ -32,6 +33,7 @@ function App() {
     { key: "", value: "", enabled: true, id: 1 },
   ]);
   const [body, setBody] = useState("");
+  const [auth, setAuth] = useState({ type: "none" });
 
   // Response state
   const [response, setResponse] = useState(null);
@@ -203,6 +205,7 @@ function App() {
     setMethod(req.method || "GET");
     setUrl(req.url || "");
     setBody(req.body || "");
+    setAuth(req.auth || { type: "none" });
 
     // Convert headers/params to editor format
     const toEditorFormat = (items) => {
@@ -226,6 +229,7 @@ function App() {
     setBody("");
     setHeaders([{ key: "", value: "", enabled: true, id: 1 }]);
     setParams([{ key: "", value: "", enabled: true, id: 1 }]);
+    setAuth({ type: "none" });
     setResponse(null);
   };
 
@@ -243,6 +247,7 @@ function App() {
       params: params
         .filter((p) => p.key)
         .map(({ key, value, enabled }) => ({ key, value, enabled })),
+      auth,
     };
 
     try {
@@ -459,6 +464,9 @@ function App() {
                   onClick={() => setActiveTab("auth")}
                 >
                   Auth
+                  {auth?.type && auth.type !== "none" && (
+                    <span className="tab-badge auth-badge">✓</span>
+                  )}
                 </button>
               </div>
 
@@ -474,13 +482,7 @@ function App() {
                   />
                 )}
                 {activeTab === "auth" && (
-                  <div className="empty-state">
-                    <div className="empty-state-icon">🔐</div>
-                    <div className="empty-state-text">Authentication</div>
-                    <div className="empty-state-subtext">
-                      Auth configuration coming soon
-                    </div>
-                  </div>
+                  <AuthEditor auth={auth} onChange={setAuth} />
                 )}
               </div>
             </section>
