@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -8,108 +9,80 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ItemType represents the type of item in a collection
 type ItemType string
 
 const (
-	ItemTypeFolder ItemType = "folder"
+	ItemTypeFolder  ItemType = "folder"
 	ItemTypeRequest ItemType = "request"
 )
 
 // KeyValuePair represents a key-value pair for headers, params, etc.
 type KeyValuePair struct {
-	Key string `json:"key"`
-	Value string `json:"value"`
-	Enabled bool `json:"enabled"`
+	Key     string `json:"key"`
+	Value   string `json:"value"`
+	Enabled bool   `json:"enabled"`
 }
 
 // RequestData holds the actual request configuration
 type RequestData struct {
-	Method string `json:"method"`
-	URL string `json:"url"`
+	Method  string         `json:"method"`
+	URL     string         `json:"url"`
 	Headers []KeyValuePair `json:"headers"`
-	Params []KeyValuePair `json:"params"`
-	Body string `json:"body"`
+	Params  []KeyValuePair `json:"params"`
+	Body    string         `json:"body"`
 }
 
 // CollectionItem represents either a folder or a request in the collection tree
 type CollectionItem struct {
-	ID string `json:"id"`
-	Name string `json:"name"`
-	Type ItemType `json:"type"`
-	Children []*CollectionItem `json:"children,omitempty"` // Only for folders
-	Request *RequestData `json:"request,omitempty"` // Only for requests
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Type      ItemType          `json:"type"`
+	Children  []*CollectionItem `json:"children,omitempty"`
+	Request   *RequestData      `json:"request,omitempty"`
+	CreatedAt time.Time         `json:"createdAt"`
+	UpdatedAt time.Time         `json:"updatedAt"`
 }
 
 // Collection represents a top-level collection
 type Collection struct {
-	ID string `json:"id"`
-	Name string `json:"name"`
-	Items []*CollectionItem `json:"items"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Items     []*CollectionItem `json:"items"`
+	CreatedAt time.Time         `json:"createdAt"`
+	UpdatedAt time.Time         `json:"updatedAt"`
+}
+
+// CollectionWithPath wraps a collection with its file path for the frontend
+type CollectionWithPath struct {
+	Collection
+	FilePath string `json:"filePath"`
 }
 
 // CollectionService handles collection operations
 type CollectionService struct {
-	dataDir string
+	ctx context.Context
+	// openCollections maps collection ID to file path
+	openCollections map[string]string
 }
 
 // NewCollectionService creates a new collection service
 func NewCollectionService() *CollectionService {
-	homeDir, _ := os.UserHomeDir()
-	dataDir := filepath.Join(homeDir, ".campfire", "collections")
-	return &CollectionService{dataDir: dataDir}
-}
-
-// ensureDataDir creates the data directory if it doesn't exist
-func (s *CollectionService) ensureDataDir() error {
-	return os.MkdirAll(s.dataDir, 0755)
-}
-
-// collectionPath returns the file path for a collection
-func (s *CollectionService) collectionPath(id string) string {
-	return filepath.Join(s.dataDir, id+".json")
-}
-
-// GetAllCollections returns all collections (metadata only, not full tree)
-func (s *CollectionService) GetAllCollections() ([]Collection, error) {
-	if err := s.ensureDataDir(); err != nil {
-		return nil, err
+	return &CollectionService{
+		openCollections: make(map[string]string),
 	}
-
-	entries, err := os.ReadDir(s.dataDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var collections []Collection
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-
-		col, err := s.loadCollection(filepath.Join(s.dataDir, entry.Name()))
-		if err != nil {
-			continue // Skip invalid files
-		}
-		collections = append(collections, *col)
-	}
-
-	return collections, nil
 }
 
-// GetCollection returns a single collection by ID
-func (s *CollectionService) GetCollection(id string) (*Collection, error) {
-	return s.loadCollection(s.collectionPath(id))
+// SetContext sets the Wails context (called from app startup)
+func (s *CollectionService) SetContext(ctx context.Context) {
+	s.ctx = ctx
 }
 
-// loadCollection loads a collection from a file
-func (s *CollectionService) loadCollection(path string) (*Collection, error) {
+// loadCollectionFromPath loads a collection from a specific file path
+func (s *CollectionService) loadCollectionFromPath(path string) (*Collection, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -123,9 +96,11 @@ func (s *CollectionService) loadCollection(path string) (*Collection, error) {
 	return &col, nil
 }
 
-// saveCollection saves a collection to disk
-func (s *CollectionService) saveCollection(col *Collection) error {
-	if err := s.ensureDataDir(); err != nil {
+// saveCollectionToPath saves a collection to a specific file path
+func (s *CollectionService) saveCollectionToPath(col *Collection, path string) error {
+	// Ensure directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
@@ -135,48 +110,170 @@ func (s *CollectionService) saveCollection(col *Collection) error {
 		return err
 	}
 
-	return os.WriteFile(s.collectionPath(col.ID), data, 0644)
+	return os.WriteFile(path, data, 0644)
 }
 
-// CreateCollection creates a new collection
-func (s *CollectionService) CreateCollection(name string) (*Collection, error) {
+// GetOpenCollections returns all currently open collections
+func (s *CollectionService) GetOpenCollections() ([]CollectionWithPath, error) {
+	var collections []CollectionWithPath
+
+	for id, path := range s.openCollections {
+		col, err := s.loadCollectionFromPath(path)
+		if err != nil {
+			// Remove invalid collection from open list
+			delete(s.openCollections, id)
+			continue
+		}
+		collections = append(collections, CollectionWithPath{
+			Collection: *col,
+			FilePath:   path,
+		})
+	}
+
+	return collections, nil
+}
+
+// GetCollection returns a single collection by ID
+func (s *CollectionService) GetCollection(id string) (*CollectionWithPath, error) {
+	path, ok := s.openCollections[id]
+	if !ok {
+		return nil, errors.New("collection not open")
+	}
+
+	col, err := s.loadCollectionFromPath(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CollectionWithPath{
+		Collection: *col,
+		FilePath:   path,
+	}, nil
+}
+
+// CreateCollection creates a new collection with a save dialog
+func (s *CollectionService) CreateCollection(name string) (*CollectionWithPath, error) {
+	// Show save dialog
+	path, err := runtime.SaveFileDialog(s.ctx, runtime.SaveDialogOptions{
+		Title:           "Save Collection",
+		DefaultFilename: name + ".campfire",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Campfire Collection", Pattern: "*.campfire"},
+			{DisplayName: "JSON Files", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return nil, errors.New("no file selected")
+	}
+
+	// Add extension if not present
+	if filepath.Ext(path) == "" {
+		path += ".campfire"
+	}
+
 	now := time.Now()
 	col := &Collection{
-		ID: uuid.New().String(),
-		Name: name,
-		Items: []*CollectionItem{},
+		ID:        uuid.New().String(),
+		Name:      name,
+		Items:     []*CollectionItem{},
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
-	if err := s.saveCollection(col); err != nil {
+	if err := s.saveCollectionToPath(col, path); err != nil {
 		return nil, err
 	}
 
-	return col, nil
+	// Track as open collection
+	s.openCollections[col.ID] = path
+
+	return &CollectionWithPath{
+		Collection: *col,
+		FilePath:   path,
+	}, nil
 }
 
-// UpdateCollection updates a collections name
-func (s *CollectionService) UpdateCollection(id, name string) (*Collection, error) {
-	col, err := s.GetCollection(id)
+// OpenCollection opens an existing collection file via dialog
+func (s *CollectionService) OpenCollection() (*CollectionWithPath, error) {
+	path, err := runtime.OpenFileDialog(s.ctx, runtime.OpenDialogOptions{
+		Title: "Open Collection",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Campfire Collection", Pattern: "*.campfire;*.json"},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return nil, errors.New("no file selected")
+	}
+
+	return s.OpenCollectionFromPath(path)
+}
+
+// OpenCollectionFromPath opens a collection from a specific path
+func (s *CollectionService) OpenCollectionFromPath(path string) (*CollectionWithPath, error) {
+	col, err := s.loadCollectionFromPath(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Track as open collection
+	s.openCollections[col.ID] = path
+
+	return &CollectionWithPath{
+		Collection: *col,
+		FilePath:   path,
+	}, nil
+}
+
+// CloseCollection closes a collection (removes from open list)
+func (s *CollectionService) CloseCollection(id string) error {
+	delete(s.openCollections, id)
+	return nil
+}
+
+// UpdateCollection updates a collection's name
+func (s *CollectionService) UpdateCollection(id, name string) (*CollectionWithPath, error) {
+	path, ok := s.openCollections[id]
+	if !ok {
+		return nil, errors.New("collection not open")
+	}
+
+	col, err := s.loadCollectionFromPath(path)
 	if err != nil {
 		return nil, err
 	}
 
 	col.Name = name
-	if err := s.saveCollection(col); err != nil {
+	if err := s.saveCollectionToPath(col, path); err != nil {
 		return nil, err
 	}
 
-	return col, nil
+	return &CollectionWithPath{
+		Collection: *col,
+		FilePath:   path,
+	}, nil
 }
 
-// DeleteCollection delets a collection
+// DeleteCollection closes and deletes a collection file
 func (s *CollectionService) DeleteCollection(id string) error {
-	return os.Remove(s.collectionPath(id))
+	path, ok := s.openCollections[id]
+	if !ok {
+		return errors.New("collection not open")
+	}
+
+	// Remove from open collections
+	delete(s.openCollections, id)
+
+	// Delete the file
+	return os.Remove(path)
 }
 
-// findItemAndParent recursively finds an item and its parent list by ID
+// Helper functions for finding items in the tree
 func findItemAndParent(items []*CollectionItem, id string) (*CollectionItem, *[]*CollectionItem, int) {
 	for i, item := range items {
 		if item.ID == id {
@@ -191,7 +288,6 @@ func findItemAndParent(items []*CollectionItem, id string) (*CollectionItem, *[]
 	return nil, nil, -1
 }
 
-// findItem recursively finds an item by ID
 func findItem(items []*CollectionItem, id string) *CollectionItem {
 	item, _, _ := findItemAndParent(items, id)
 	return item
@@ -199,26 +295,29 @@ func findItem(items []*CollectionItem, id string) *CollectionItem {
 
 // CreateFolder creates a new folder in a collection
 func (s *CollectionService) CreateFolder(collectionID, parentID, name string) (*CollectionItem, error) {
-	col, err := s.GetCollection(collectionID)
+	path, ok := s.openCollections[collectionID]
+	if !ok {
+		return nil, errors.New("collection not open")
+	}
+
+	col, err := s.loadCollectionFromPath(path)
 	if err != nil {
 		return nil, err
 	}
 
 	now := time.Now()
 	folder := &CollectionItem{
-		ID: uuid.New().String(),
-		Name: name,
-		Type: ItemTypeFolder,
-		Children: []*CollectionItem{},
+		ID:        uuid.New().String(),
+		Name:      name,
+		Type:      ItemTypeFolder,
+		Children:  []*CollectionItem{},
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
 	if parentID == "" {
-		// Add to root
 		col.Items = append(col.Items, folder)
 	} else {
-		// Find parent folder
 		parent := findItem(col.Items, parentID)
 		if parent == nil || parent.Type != ItemTypeFolder {
 			return nil, errors.New("parent folder not found")
@@ -226,7 +325,7 @@ func (s *CollectionService) CreateFolder(collectionID, parentID, name string) (*
 		parent.Children = append(parent.Children, folder)
 	}
 
-	if err := s.saveCollection(col); err != nil {
+	if err := s.saveCollectionToPath(col, path); err != nil {
 		return nil, err
 	}
 
@@ -235,32 +334,35 @@ func (s *CollectionService) CreateFolder(collectionID, parentID, name string) (*
 
 // CreateRequest creates a new request in a collection
 func (s *CollectionService) CreateRequest(collectionID, parentID, name string) (*CollectionItem, error) {
-	col, err := s.GetCollection(collectionID)
+	path, ok := s.openCollections[collectionID]
+	if !ok {
+		return nil, errors.New("collection not open")
+	}
+
+	col, err := s.loadCollectionFromPath(path)
 	if err != nil {
 		return nil, err
 	}
 
 	now := time.Now()
 	request := &CollectionItem{
-		ID: uuid.New().String(),
+		ID:   uuid.New().String(),
 		Name: name,
 		Type: ItemTypeRequest,
 		Request: &RequestData{
-			Method: "GET",
-			URL: "",
+			Method:  "GET",
+			URL:     "",
 			Headers: []KeyValuePair{},
-			Params: []KeyValuePair{},
-			Body: "",
+			Params:  []KeyValuePair{},
+			Body:    "",
 		},
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
 	if parentID == "" {
-		// Add to root
 		col.Items = append(col.Items, request)
 	} else {
-		// Find parent folder
 		parent := findItem(col.Items, parentID)
 		if parent == nil || parent.Type != ItemTypeFolder {
 			return nil, errors.New("parent folder not found")
@@ -268,16 +370,21 @@ func (s *CollectionService) CreateRequest(collectionID, parentID, name string) (
 		parent.Children = append(parent.Children, request)
 	}
 
-	if err := s.saveCollection(col); err != nil {
+	if err := s.saveCollectionToPath(col, path); err != nil {
 		return nil, err
 	}
 
 	return request, nil
 }
 
-// UpdateItem updates an items' name or request data
+// UpdateItem updates an item's name or request data
 func (s *CollectionService) UpdateItem(collectionID, itemID, name string, request *RequestData) (*CollectionItem, error) {
-	col, err := s.GetCollection(collectionID)
+	path, ok := s.openCollections[collectionID]
+	if !ok {
+		return nil, errors.New("collection not open")
+	}
+
+	col, err := s.loadCollectionFromPath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +402,7 @@ func (s *CollectionService) UpdateItem(collectionID, itemID, name string, reques
 	}
 	item.UpdatedAt = time.Now()
 
-	if err := s.saveCollection(col); err != nil {
+	if err := s.saveCollectionToPath(col, path); err != nil {
 		return nil, err
 	}
 
@@ -304,7 +411,12 @@ func (s *CollectionService) UpdateItem(collectionID, itemID, name string, reques
 
 // DeleteItem deletes an item from a collection
 func (s *CollectionService) DeleteItem(collectionID, itemID string) error {
-	col, err := s.GetCollection(collectionID)
+	path, ok := s.openCollections[collectionID]
+	if !ok {
+		return errors.New("collection not open")
+	}
+
+	col, err := s.loadCollectionFromPath(path)
 	if err != nil {
 		return err
 	}
@@ -313,7 +425,7 @@ func (s *CollectionService) DeleteItem(collectionID, itemID string) error {
 	for i, item := range col.Items {
 		if item.ID == itemID {
 			col.Items = append(col.Items[:i], col.Items[i+1:]...)
-			return s.saveCollection(col)
+			return s.saveCollectionToPath(col, path)
 		}
 	}
 
@@ -338,7 +450,7 @@ func (s *CollectionService) DeleteItem(collectionID, itemID string) error {
 	}
 
 	if removeFromParent(col.Items) {
-		return s.saveCollection(col)
+		return s.saveCollectionToPath(col, path)
 	}
 
 	return errors.New("item not found")
@@ -346,21 +458,23 @@ func (s *CollectionService) DeleteItem(collectionID, itemID string) error {
 
 // MoveItem moves an item to a new parent
 func (s *CollectionService) MoveItem(collectionID, itemID, newParentID string) error {
-	col, err := s.GetCollection(collectionID)
+	path, ok := s.openCollections[collectionID]
+	if !ok {
+		return errors.New("collection not open")
+	}
+
+	col, err := s.loadCollectionFromPath(path)
 	if err != nil {
 		return err
 	}
 
-	// Find and remove item from current location
 	item, parentList, idx := findItemAndParent(col.Items, itemID)
 	if item == nil {
 		return errors.New("item not found")
 	}
 
-	// Remove from current location
 	*parentList = append((*parentList)[:idx], (*parentList)[idx+1:]...)
 
-	// Add to new location
 	if newParentID == "" {
 		col.Items = append(col.Items, item)
 	} else {
@@ -371,5 +485,5 @@ func (s *CollectionService) MoveItem(collectionID, itemID, newParentID string) e
 		newParent.Children = append(newParent.Children, item)
 	}
 
-	return s.saveCollection(col)
+	return s.saveCollectionToPath(col, path)
 }

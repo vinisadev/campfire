@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import "./App.css";
 import CollectionTree from "./components/CollectionTree";
 import {
-  GetAllCollections,
+  GetOpenCollections,
   GetCollection,
   CreateCollection,
   UpdateCollection,
@@ -46,7 +46,7 @@ function App() {
 
   const loadCollections = async () => {
     try {
-      const cols = await GetAllCollections();
+      const cols = await GetOpenCollections();
       setCollections(cols || []);
     } catch (err) {
       console.error("Failed to load collections:", err);
@@ -70,15 +70,49 @@ function App() {
     if (!name) return;
 
     try {
-      const col = await CreateCollection(name);
-      setCollections((prev) => [...prev, col]);
+      if (col) {
+        setCollections((prev) => [...prev, col]);
+      }
     } catch (err) {
-      console.error("Failed to create collection:", err);
+      // User cancelled the dialog
+      if (!err.includes("no file selected")) {
+        console.error("Failed to create collection:", err);
+      }
+    }
+  };
+
+  const handleOpenCollection = async () => {
+    try {
+      const col = await OpenCollection();
+      if (col) {
+        // Check if already open
+        if (!collections.find((c) => c.id === col.id)) {
+          setCollections((prev) => [...prev, col]);
+        }
+      }
+    } catch (err) {
+      // User cancelled the dialog
+      if (!error.includes("no file selected")) {
+        console.error("Failed to open collection:", err);
+      }
+    }
+  };
+
+  const handleCloseCollection = async (collectionId) => {
+    try {
+      await CloseCollection(collectionId);
+      setCollections((prev) => prev.filter((c) => c.id !== collectionId));
+      if (selectedRequest?.collectionId === collectionId) {
+        setSelectedRequest(null);
+        resetEditor();
+      }
+    } catch (err) {
+      console.error("Failed to close collection:", err);
     }
   };
 
   const handleDeleteCollection = async (collectionId) => {
-    if (!confirm("Delete this collection?")) return;
+    if (!confirm("Delete this collection file permanently?")) return;
 
     try {
       await DeleteCollection(collectionId);
@@ -317,9 +351,18 @@ function App() {
           <button
             className="sidebar-action-btn"
             onClick={handleCreateCollection}
+            title="Create new collection"
           >
             <span>+</span>
-            <span>Collection</span>
+            <span>New</span>
+          </button>
+          <button
+            className="sidebar-action-btn"
+            onClick={handleOpenCollection}
+            title="Open existing collection"
+          >
+            <span>📂</span>
+            <span>Open</span>
           </button>
         </div>
 
@@ -328,6 +371,8 @@ function App() {
           selectedRequestId={selectedRequest?.id}
           onSelectRequest={handleSelectRequest}
           onCreateCollection={handleCreateCollection}
+          onOpenCollection={handleOpenCollection}
+          onCloseCollection={handleCloseCollection}
           onCreateFolder={handleCreateFolder}
           onCreateRequest={handleCreateRequest}
           onRenameItem={handleRenameItem}

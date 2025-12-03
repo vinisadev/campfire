@@ -42,6 +42,18 @@
   color: var(--ember);
 }
 
+.empty-collections-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.create-collection-btn.secondary {
+  background: transparent;
+  border-style: dashed;
+}
+
 /* Collection node */
 .collection-node {
   margin-bottom: 4px;
@@ -72,6 +84,16 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.collection-path {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 0 12px 6px 32px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.7;
 }
 
 .collection-items {
@@ -225,6 +247,15 @@
 .context-menu-item:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.context-menu-item.danger {
+  color: var(--error);
+}
+
+.context-menu-item.danger:hover {
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--error);
 }
 
 .context-menu-icon {

@@ -98,7 +98,7 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class Collection {
+	export class CollectionWithPath {
 	    id: string;
 	    name: string;
 	    items: CollectionItem[];
@@ -106,9 +106,10 @@ export namespace main {
 	    createdAt: any;
 	    // Go type: time
 	    updatedAt: any;
+	    filePath: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new Collection(source);
+	        return new CollectionWithPath(source);
 	    }
 	
 	    constructor(source: any = {}) {
@@ -118,6 +119,7 @@ export namespace main {
 	        this.items = this.convertValues(source["items"], CollectionItem);
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.filePath = source["filePath"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -138,7 +140,6 @@ export namespace main {
 		    return a;
 		}
 	}
-	
 	
 
 }

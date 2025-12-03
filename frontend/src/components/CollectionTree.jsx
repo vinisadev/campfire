@@ -6,7 +6,6 @@ function TreeItem({ item, depth = 0, onSelect, selectedId, onContextMenu }) {
   const [expanded, setExpanded] = useState(true);
   const isFolder = item.type === "folder";
   const isSelected = item.id === selectedId;
-  const hasChildren = isFolder && item.children && item.children.length > 0;
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -88,17 +87,26 @@ function CollectionNode({
   onToggle,
   expanded,
 }) {
+  // Extract just the filename from the path for display
+  const fileName = collection.filePath?.split("/").pop() || collection.name;
   return (
     <div className="collection-node">
       <div
         className="collection-header"
         onClick={() => onToggle(collection.id)}
         onContextMenu={(e) => onContextMenu(e, collection, true)}
+        title={collection.filePath}
       >
         <span className={`tree-chevron ${expanded ? "expanded" : ""}`}>›</span>
         <span className="collection-icon">📦</span>
         <span className="collection-name">{collection.name}</span>
       </div>
+
+      {collection.filePath && (
+        <div className="collection-path" title={collection.filePath}>
+          {collection.filePath}
+        </div>
+      )}
 
       {expanded && (
         <div className="collection-items">
@@ -131,7 +139,7 @@ function ContextMenu({ x, y, items, onClose }) {
           ) : (
             <button
               key={index}
-              className="context-menu-item"
+              className={`context-menu-item ${item.danger ? "danger" : ""}`}
               onClick={() => {
                 item.action();
                 onClose();
@@ -155,6 +163,8 @@ export default function CollectionTree({
   onSelectRequest,
   selectedRequestId,
   onCreateCollection,
+  onOpenCollection,
+  onCloseCollection,
   onCreateFolder,
   onCreateRequest,
   onRenameItem,
@@ -196,9 +206,18 @@ export default function CollectionTree({
           action: () => onRenameItem(item.id, "", item.name),
         },
         {
+          separator: true,
+        },
+        {
+          icon: "✕",
+          label: "Close",
+          action: () => onCloseCollection(item.id),
+        },
+        {
           icon: "🗑️",
-          label: "Delete",
+          label: "Delete File",
           action: () => onDeleteCollection(item.id),
+          danger: true,
         },
       ];
     } else if (item.type === "folder") {
@@ -256,6 +275,7 @@ export default function CollectionTree({
       y: e.clientY,
       items: [
         { icon: "📦", label: "New Collection", action: onCreateCollection },
+        { icon: "📂", label: "Open Collection", action: onOpenCollection },
       ],
     });
   };
@@ -279,13 +299,21 @@ export default function CollectionTree({
       {collections.length === 0 ? (
         <div className="empty-collections">
           <div className="empty-collections-icon">📦</div>
-          <div className="empty-collections-text">No collections yet</div>
-          <button
-            className="create-collection-btn"
-            onClick={onCreateCollection}
-          >
-            Create Collection
-          </button>
+          <div className="empty-collections-text">No collections open</div>
+          <div className="empty-collections-actions">
+            <button
+              className="create-collection-btn"
+              onClick={onCreateCollection}
+            >
+              New Collection
+            </button>
+            <button
+              className="create-collection-btn secondary"
+              onClick={onOpenCollection}
+            >
+              Open Existing
+            </button>
+          </div>
         </div>
       ) : (
         collections.map((collection) => (
