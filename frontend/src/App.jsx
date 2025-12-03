@@ -1,15 +1,36 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
+import CollectionTree from "./components/CollectionTree";
+import {
+  GetAllCollections,
+  GetCollection,
+  CreateCollection,
+  UpdateCollection,
+  DeleteCollection,
+  CreateFolder,
+  CreateRequest,
+  UpdateItem,
+  DeleteItem,
+} from "../wailsjs/go/main/CollectionService";
 
 function App() {
+  // Collection state
+  const [collections, setCollections] = useState([]);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+
+  // Request editor state
   const [method, setMethod] = useState("GET");
   const [url, setUrl] = useState("");
   const [activeTab, setActiveTab] = useState("params");
   const [activeResponseTab, setActiveResponseTab] = useState("body");
 
   // Request configuration state
-  const [params, setParams] = useState([{ key: "", value: "", id: 1 }]);
-  const [headers, setHeaders] = useState([{ key: "", value: "", id: 1 }]);
+  const [params, setParams] = useState([
+    { key: "", value: "", enabled: true, id: 1 },
+  ]);
+  const [headers, setHeaders] = useState([
+    { key: "", value: "", enabled: true, id: 1 },
+  ]);
   const [body, setBody] = useState("");
 
   // Response state
@@ -18,7 +39,195 @@ function App() {
 
   const methods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
-  const handleSend = () => {
+  // Load collections on mount
+  useEffect(() => {
+    loadCollections();
+  }, []);
+
+  const loadCollections = async () => {
+    try {
+      const cols = await GetAllCollections();
+      setCollections(cols || []);
+    } catch (err) {
+      console.error("Failed to load collections:", err);
+    }
+  };
+
+  const refreshCollection = async (collectionId) => {
+    try {
+      const col = await GetCollection(collectionId);
+      setCollections((prev) =>
+        prev.map((c) => (c.id === collectionId ? col : c))
+      );
+    } catch (err) {
+      console.error("Failed to refresh collection:", err);
+    }
+  };
+
+  // Collection handlers
+  const handleCreateCollection = async () => {
+    const name = prompt("Collection name:");
+    if (!name) return;
+
+    try {
+      const col = await CreateCollection(name);
+      setCollections((prev) => [...prev, col]);
+    } catch (err) {
+      console.error("Failed to create collection:", err);
+    }
+  };
+
+  const handleDeleteCollection = async (collectionId) => {
+    if (!confirm("Delete this collection?")) return;
+
+    try {
+      await DeleteCollection(collectionId);
+      setCollections((prev) => prev.filter((c) => c.id !== collectionId));
+      if (selectedRequest?.collectionId === collectionId) {
+        setSelectedRequest(null);
+        resetEditor();
+      }
+    } catch (err) {
+      console.error("Failed to delete collection:", err);
+    }
+  };
+
+  // Folder handlers
+  const handleCreateFolder = async (collectionId, parentId) => {
+    const name = prompt("Folder name:");
+    if (!name) return;
+
+    try {
+      await CreateFolder(collectionId, parentId, name);
+      await refreshCollection(collectionId);
+    } catch (err) {
+      console.error("Failed to create folder:", err);
+    }
+  };
+
+  // Request handlers
+  const handleCreateRequest = async (collectionId, parentId) => {
+    const name = prompt("Request name:");
+    if (!name) return;
+
+    try {
+      const item = await CreateRequest(collectionId, parentId, name);
+      await refreshCollection(collectionId);
+      handleSelectRequest({ ...item, collectionId });
+    } catch (err) {
+      console.error("Failed to create request:", err);
+    }
+  };
+
+  const handleRenameItem = async (collectionId, itemId, currentName) => {
+    const newName = prompt("New name:", currentName);
+    if (!newName || newName === currentName) return;
+
+    if (itemId === "") {
+      // Renaming collection
+      try {
+        await UpdateCollection(collectionId, newName);
+        setCollections((prev) =>
+          prev.map((c) => (c.id === collectionId ? { ...c, name: newName } : c))
+        );
+      } catch (err) {
+        console.error("Failed to rename collection:", err);
+      }
+    } else {
+      // Renaming item
+      try {
+        await UpdateItem(collectionId, itemId, newName, null);
+        await refreshCollection(collectionId);
+      } catch (err) {
+        console.error("Failed to rename item:", err);
+      }
+    }
+  };
+
+  const handleDeleteItem = async (collectionId, itemId) => {
+    if (!confirm("Delete this item?")) return;
+
+    try {
+      await DeleteItem(collectionId, itemId);
+      await refreshCollection(collectionId);
+      if (selectedRequest?.id === itemId) {
+        setSelectedRequest(null);
+        resetEditor();
+      }
+    } catch (err) {
+      console.error("Failed to delete item:", err);
+    }
+  };
+
+  const handleSelectRequest = (item) => {
+    if (item.type !== "request") return;
+
+    setSelectedRequest(item);
+
+    // Load request data into editor
+    const req = item.request || {};
+    setMethod(req.method || "GET");
+    setUrl(req.url || "");
+    setBody(req.body || "");
+
+    // Convert headers/params to editor format
+    const toEditorFormat = (items) => {
+      if (!items || items.length === 0) {
+        return [{ key: "", value: "", enabled: true, id: 1 }];
+      }
+      return items.map((item, index) => ({
+        ...item,
+        id: index + 1,
+      }));
+    };
+
+    setHeaders(toEditorFormat(req.headers));
+    setParams(toEditorFormat(req.params));
+    setResponse(null);
+  };
+
+  const resetEditor = () => {
+    setMethod("GET");
+    setUrl("");
+    setBody("");
+    setHeaders([{ key: "", value: "", enabled: true, id: 1 }]);
+    setParams([{ key: "", value: "", enabled: true, id: 1 }]);
+    setResponse(null);
+  };
+
+  // Save current request
+  const saveCurrentRequest = async () => {
+    if (!selectedRequest) return;
+
+    const requestData = {
+      method,
+      url,
+      body,
+      headers: headers
+        .filter((h) => h.key)
+        .map(({ key, value, enabled }) => ({ key, value, enabled })),
+      params: params
+        .filter((p) => p.key)
+        .map(({ key, value, enabled }) => ({ key, value, enabled })),
+    };
+
+    try {
+      await UpdateItem(
+        selectedRequest.collectionId,
+        selectedRequest.id,
+        "",
+        requestData
+      );
+      await refreshCollection(selectedRequest.collectionId);
+    } catch (err) {
+      console.error("Failed to save request:", err);
+    }
+  };
+
+  const handleSend = async () => {
+    // Save before sending
+    await saveCurrentRequest();
+
     // TODO: Implement actual request sending
     setLoading(true);
     setTimeout(() => {
@@ -35,7 +244,7 @@ function App() {
 
   const addKvRow = (setter, items) => {
     const newId = Math.max(...items.map((i) => i.id), 0) + 1;
-    setter([...items, { key: "", value: "", id: newId }]);
+    setter([...items, { key: "", value: "", enabled: true, id: newId }]);
   };
 
   const updateKvRow = (setter, items, id, field, value) => {
@@ -54,6 +263,14 @@ function App() {
     <div className="kv-editor">
       {items.map((item) => (
         <div className="kv-row" key={item.id}>
+          <input
+            type="checkbox"
+            className="kv-checkbox"
+            checked={item.enabled !== false}
+            onChange={(e) =>
+              updateKvRow(setter, items, item.id, "enabled", e.target.checked)
+            }
+          />
           <input
             type="text"
             className="key-input"
@@ -96,21 +313,27 @@ function App() {
           </div>
         </div>
 
-        <div className="sidebar-content">
-          <div className="sidebar-section">
-            <div className="sidebar-section-title">Requests</div>
-            <div className="request-list">
-              <div className="request-item active">
-                <span className="request-method get">GET</span>
-                <span className="request-name">New Request</span>
-              </div>
-            </div>
-            <button className="new-request-btn">
-              <span>+</span>
-              <span>New Request</span>
-            </button>
-          </div>
+        <div className="sidebar-actions">
+          <button
+            className="sidebar-action-btn"
+            onClick={handleCreateCollection}
+          >
+            <span>+</span>
+            <span>Collection</span>
+          </button>
         </div>
+
+        <CollectionTree
+          collections={collections}
+          selectedRequestId={selectedRequest?.id}
+          onSelectRequest={handleSelectRequest}
+          onCreateCollection={handleCreateCollection}
+          onCreateFolder={handleCreateFolder}
+          onCreateRequest={handleCreateRequest}
+          onRenameItem={handleRenameItem}
+          onDeleteItem={handleDeleteItem}
+          onDeleteCollection={handleDeleteCollection}
+        />
       </aside>
 
       {/* Main Panel */}
@@ -141,6 +364,16 @@ function App() {
             {loading ? "Sending..." : "Send"}
           </button>
         </div>
+
+        {/* Request name indicator */}
+        {selectedRequest && (
+          <div className="request-name-bar">
+            <span className="request-name-label">{selectedRequest.name}</span>
+            <button className="save-btn" onClick={saveCurrentRequest}>
+              Save
+            </button>
+          </div>
+        )}
 
         {/* Workspace */}
         <div className="workspace">
