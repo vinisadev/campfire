@@ -6,6 +6,8 @@ import {
   GetOpenCollections,
   GetCollection,
   CreateCollection,
+  OpenCollection,
+  CloseCollection,
   UpdateCollection,
   DeleteCollection,
   CreateFolder,
@@ -13,6 +15,7 @@ import {
   UpdateItem,
   DeleteItem,
 } from "../wailsjs/go/main/CollectionService";
+import { SendRequest } from "../wailsjs/go/main/HTTPClient";
 
 function App() {
   // Collection state
@@ -40,6 +43,26 @@ function App() {
   const [loading, setLoading] = useState(false);
 
   const methods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+
+  // Format bytes to human-readable string
+  const formatBytes = (bytes) => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  };
+
+  // Format response body (pretty print JSON if possible)
+  const formatResponseBody = (body) => {
+    if (!body) return "";
+    try {
+      const parsed = JSON.parse(body);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return body;
+    }
+  };
 
   // Load collections on mount
   useEffect(() => {
@@ -72,6 +95,7 @@ function App() {
     if (!name) return;
 
     try {
+      const col = await CreateCollection(name);
       if (col) {
         setCollections((prev) => [...prev, col]);
       }
@@ -94,7 +118,7 @@ function App() {
       }
     } catch (err) {
       // User cancelled the dialog
-      if (!error.includes("no file selected")) {
+      if (!err.includes("no file selected")) {
         console.error("Failed to open collection:", err);
       }
     }
@@ -264,23 +288,66 @@ function App() {
   };
 
   const handleSend = async () => {
+    if (!url) {
+      setResponse({
+        error: "Please enter a URL",
+        status: 0,
+        statusText: "",
+        time: 0,
+        size: 0,
+        body: "",
+        headers: [],
+      });
+      return;
+    }
+
     // Save before sending
     await saveCurrentRequest();
 
-    // TODO: Implement actual request sending
     setLoading(true);
-    setTimeout(() => {
+    setResponse(null);
+
+    try {
+      const requestData = {
+        method,
+        url,
+        body,
+        headers: headers
+          .filter((h) => h.key && h.enabled)
+          .map(({ key, value, enabled }) => ({ key, value, enabled })),
+        params: params
+          .filter((p) => p.key && p.enabled)
+          .map(({ key, value, enabled }) => ({ key, value, enabled })),
+        auth,
+      };
+
+      const result = await SendRequest(requestData);
+
       setResponse({
-        status: 200,
-        statusText: "OK",
-        time: 142,
-        size: "1.2 KB",
-        body: JSON.stringify({ message: "Response will appear here" }, null, 2),
+        status: result.status,
+        statusText: result.statusText,
+        time: result.time,
+        size: result.size,
+        body: result.body,
+        headers: result.headers || [],
+        error: result.error,
       });
+    } catch (err) {
+      setResponse({
+        error: err.toString(),
+        status: 0,
+        statusText: "Error",
+        time: 0,
+        size: 0,
+        body: "",
+        headers: [],
+      });
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
+  // Key-value editor helpers
   const addKvRow = (setter, items) => {
     const newId = Math.max(...items.map((i) => i.id), 0) + 1;
     setter([...items, { key: "", value: "", enabled: true, id: newId }]);
@@ -443,7 +510,7 @@ function App() {
                   )}
                 </button>
                 <button
-                  className={`tab ${activeTab} === 'headers' ? 'active' : ''}`}
+                  className={`tab ${activeTab === "headers" ? "active" : ""}`}
                   onClick={() => setActiveTab("headers")}
                 >
                   Headers
@@ -514,7 +581,7 @@ function App() {
                   </button>
                 </div>
 
-                {response && (
+                {response && !response.error && (
                   <div className="response-meta">
                     <span
                       className={`response-status ${
@@ -523,18 +590,48 @@ function App() {
                     >
                       {response.status} {response.statusText}
                     </span>
-                    <span className="response-info">{response.time}</span>
-                    <span className="response-info">{response.size}</span>
+                    <span className="response-info">{response.time}ms</span>
+                    <span className="response-info">
+                      {formatBytes(response.size)}
+                    </span>
                   </div>
                 )}
               </div>
 
               {response ? (
-                <div className="response-body">
-                  {activeResponseTab === "body" && response.body}
-                  {activeResponseTab === "headers" &&
-                    "Response headers will appear here"}
-                </div>
+                response.error ? (
+                  <div className="response-error">
+                    <div className="response-error-icon">⚠️</div>
+                    <div className="response-error-message">
+                      {response.error}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="response-body">
+                    {activeResponseTab === "body" &&
+                      formatResponseBody(response.body)}
+                    {activeResponseTab === "headers" && (
+                      <div className="response-headers-list">
+                        {response.headers && response.headers.length > 0 ? (
+                          response.headers.map((header, index) => (
+                            <div key={index} className="response-header-row">
+                              <span className="response-header-key">
+                                {header.key}:
+                              </span>
+                              <span className="response-header-value">
+                                {header.value}
+                              </span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="empty-state-text">
+                            No response headers
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
               ) : (
                 <div className="empty-state">
                   <div className="empty-state-icon">⚡</div>

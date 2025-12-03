@@ -16,6 +16,7 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 	collectionService := NewCollectionService()
+	httpClient := NewHTTPClient()
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -33,6 +34,7 @@ func main() {
 		Bind: []interface{}{
 			app,
 			collectionService,
+			httpClient,
 		},
 	})
 

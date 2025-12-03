@@ -363,6 +363,56 @@
   word-break: break-all;
 }
 
+/* Response error state */
+.response-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 32px;
+  text-align: center;
+  gap: 12px;
+}
+
+.response-error-icon {
+  font-size: 32px;
+}
+
+.response-error-message {
+  color: var(--error);
+  font-size: 13px;
+  max-width: 400px;
+  line-height: 1.5;
+}
+
+/* Response headers list */
+.response-headers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.response-header-row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.response-header-key {
+  color: var(--ember-bright);
+  font-weight: 500;
+  min-width: 180px;
+  flex-shrink: 0;
+}
+
+.response-header-value {
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
 /* Empty states */
 .empty-state {
   display: flex;
